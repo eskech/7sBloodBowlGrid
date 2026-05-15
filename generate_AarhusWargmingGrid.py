@@ -127,6 +127,7 @@ SPECIAL_RULES: dict[str, dict] = {
             "Allowed rerolls: 1 + TIER",
             "Apo cost 75.000 and works as normal",
             "Positionals: All non 0-16 linemen!",
+            "Riotous Rookies: 1d3 + 1"
         ],
     },
     "Skill Picks & Stacking": {
