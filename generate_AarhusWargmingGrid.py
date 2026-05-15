@@ -26,6 +26,8 @@ from pptx.oxml.ns import qn
 from pptx.util import Inches, Pt
 from lxml import etree
 
+VERSION = "2026.1.0"
+
 # ─── PATHS ──────────────────────────────────────────────────────────────────
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -519,7 +521,7 @@ def build_page1(prs, bg_path: str):
     # Title bar
     title_h = Inches(0.45)
     add_textbox(
-        slide, "Aarhus Wargaming Grid 2026",
+        slide, f"Aarhus Wargaming Grid {VERSION}",
         margin, margin, sw - 2 * margin, title_h,
         font_size=22, bold=True, color=GOLD,
         bg=BLUE_DARK, align=PP_ALIGN.CENTER,
@@ -685,7 +687,7 @@ def build_page2(prs, bg_path: str):
     # Title
     title_h = Inches(0.45)
     add_textbox(
-        slide, "Aarhus Wargaming Grid 2026 – Special Rules",
+        slide, f"Aarhus Wargaming Grid {VERSION} – Special Rules",
         margin, margin, sw - 2 * margin, title_h,
         font_size=20, bold=True, color=GOLD,
         bg=BLUE_DARK, align=PP_ALIGN.CENTER,
@@ -951,7 +953,7 @@ def export_pdf(out_path: str) -> str:
 
     # ── Page 1 ──────────────────────────────────────────────────────────────
     _bg()
-    _title("Aarhus Wargaming Grid 2026", fs=20)
+    _title(f"Aarhus Wargaming Grid {VERSION}", fs=20)
 
     grid_top = M + title_h + GAP
     grid_h   = 3.75 * PT
@@ -966,7 +968,7 @@ def export_pdf(out_path: str) -> str:
 
     # ── Page 2 ──────────────────────────────────────────────────────────────
     _bg()
-    _title("Aarhus Wargaming Grid 2026 – Special Rules", fs=18)
+    _title(f"Aarhus Wargaming Grid {VERSION} – Special Rules", fs=18)
 
     GAP2 = 0.10 * PT
     col_w = (PW - 2 * M - GAP2) / 2
