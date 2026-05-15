@@ -8,7 +8,8 @@ Aarhus Wargaming Blood Bowl 7s tournament grid.
 - **Page 2** – Special rules, inducements table, experimental-drugs table, and a
   repeat of the star players for quick reference.
 
-The Warhammer Aarhus club logo is used as a watermark background on both pages.
+The Warhammer Aarhus club logo appears both as a watermark background and as a
+small badge in the upper-right corner of each page.
 
 The grid was based on Steely Grid from 2026.
 
@@ -21,20 +22,14 @@ The grid was based on Steely Grid from 2026.
 | Python 3.10+ | Type hints use `dict[…]` and `list[…]` syntax |
 | [python-pptx](https://python-pptx.readthedocs.io/) | PowerPoint generation |
 | [cairosvg](https://cairosvg.org/) | SVG → PNG conversion for the background |
-| [Pillow](https://pillow.readthedocs.io/) | Image compositing for the background |
+| [Pillow](https://pillow.readthedocs.io/) | Image compositing |
 | [lxml](https://lxml.de/) | XML manipulation inside python-pptx |
-| LibreOffice (headless) | PDF export – must be on `PATH` |
+| [reportlab](https://www.reportlab.com/) | Pure-Python PDF generation |
 
-Install the Python packages in one step:
-
-```bash
-pip install python-pptx cairosvg pillow lxml
-```
-
-Install LibreOffice on Debian/Ubuntu:
+Install all Python packages in one step:
 
 ```bash
-sudo apt install libreoffice
+pip install python-pptx cairosvg pillow lxml reportlab
 ```
 
 ---
@@ -82,7 +77,7 @@ Each key is a `(gp_cost, spp_budget)` tuple. Each value is a list of
 - To **move** a team, change its key.
 - To **add** a team, append `("Name", tier)` to the relevant cell.
 - To **remove** a team, delete its tuple.
-- Tier colours: **T1** = gold, **T2** = silver, **T3** = bronze.
+- Tier colours: **T1** = green, **T2** = yellow, **T3** = orange, **T4** = red.
 
 ### Star players (`STAR_PLAYERS`)
 

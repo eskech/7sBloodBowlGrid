@@ -13,9 +13,11 @@ To update rules:        edit SPECIAL_RULES dict
 import io
 import math
 import os
-import subprocess
 
 import cairosvg
+from reportlab.lib.colors import Color as _RLColor
+from reportlab.pdfbase.pdfmetrics import stringWidth as _sw
+from reportlab.pdfgen import canvas as rl_canvas
 from PIL import Image, ImageFilter
 from pptx import Presentation
 from pptx.dml.color import RGBColor
@@ -722,23 +724,270 @@ def build_page2(prs, bg_path: str):
 
 # ─── PDF EXPORT ─────────────────────────────────────────────────────────────
 
-def export_pdf(pptx_path: str) -> str:
-    """Convert the saved PPTX to PDF using LibreOffice (headless)."""
-    out_dir = os.path.dirname(pptx_path) or "."
-    result = subprocess.run(
-        [
-            "libreoffice", "--headless",
-            "--convert-to", "pdf",
-            "--outdir", out_dir,
-            pptx_path,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    pdf_path = os.path.splitext(pptx_path)[0] + ".pdf"
-    if result.returncode != 0 or not os.path.exists(pdf_path):
-        raise RuntimeError(result.stderr.strip() or "LibreOffice returned non-zero exit code")
+def _rc(rgb: RGBColor) -> _RLColor:
+    return _RLColor(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255)
+
+
+def _pdf_rect(c, x, yb, w, h, fill: RGBColor, stroke: RGBColor | None = None):
+    c.setFillColor(_rc(fill))
+    if stroke:
+        c.setStrokeColor(_rc(stroke))
+        c.setLineWidth(0.4)
+        c.rect(x, yb, w, h, fill=1, stroke=1)
+    else:
+        c.rect(x, yb, w, h, fill=1, stroke=0)
+
+
+def _pdf_label(c, text, x, yb, w, h, color: RGBColor, size: float,
+               bold: bool = False, align: str = "C"):
+    c.setFont("Helvetica-Bold" if bold else "Helvetica", size)
+    c.setFillColor(_rc(color))
+    ty = yb + (h - size * 0.72) / 2
+    if align == "C":
+        c.drawCentredString(x + w / 2, ty, str(text))
+    elif align == "R":
+        c.drawRightString(x + w - 2, ty, str(text))
+    else:
+        c.drawString(x + 3, ty, str(text))
+
+
+def _pdf_wrap(text: str, font: str, size: float, max_w: float) -> list[str]:
+    words = text.split()
+    lines, current = [], ""
+    for word in words:
+        candidate = (current + " " + word).strip()
+        if _sw(candidate, font, size) <= max_w:
+            current = candidate
+        else:
+            if current:
+                lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    return lines
+
+
+def _pdf_teams_cell(c, teams, x, yb, w, h):
+    if not teams:
+        return
+    n   = len(teams)
+    rh  = h / n
+    for i, (name, tier) in enumerate(teams):
+        cy  = yb + h - (i + 1) * rh
+        ns  = name + " "
+        ts  = f"T{tier}"
+        fsn, fst = 7.0, 5.5
+        nw  = _sw(ns, "Helvetica", fsn)
+        tw  = _sw(ts, "Helvetica-Bold", fst)
+        sx  = x + (w - nw - tw) / 2
+        ty  = cy + (rh - fsn * 0.72) / 2
+        c.setFont("Helvetica", fsn)
+        c.setFillColor(_rc(WHITE))
+        c.drawString(sx, ty, ns)
+        c.setFont("Helvetica-Bold", fst)
+        c.setFillColor(_rc(TIER_COLORS.get(tier, GOLD)))
+        c.drawString(sx + nw, ty, ts)
+
+
+def _pdf_grid_table(c, left, bottom, width, height):
+    gp_w  = width * 0.095
+    spp_w = (width - gp_w) / len(SPP_COLS)
+    hdr_h = height * 0.13
+    dat_h = (height - hdr_h) / len(GP_ROWS)
+
+    def cx(ci): return left + (0 if ci == 0 else gp_w + (ci - 1) * spp_w)
+    def cw(ci): return gp_w if ci == 0 else spp_w
+    def ryb(ri):
+        top = 0 if ri == 0 else hdr_h + (ri - 1) * dat_h
+        rh  = hdr_h if ri == 0 else dat_h
+        return bottom + height - top - rh, rh
+
+    for ri in range(1 + len(GP_ROWS)):
+        ry, rh = ryb(ri)
+        for ci in range(1 + len(SPP_COLS)):
+            if ri == 0:
+                _pdf_rect(c, cx(ci), ry, cw(ci), rh, HEADER_BG, GOLD)
+                label = "GP/SPP" if ci == 0 else str(SPP_COLS[ci - 1])
+                _pdf_label(c, label, cx(ci), ry, cw(ci), rh, GOLD,
+                           7 if ci == 0 else 9, bold=True)
+            else:
+                gp = GP_ROWS[ri - 1]
+                bg = BLUE_MID if (ri - 1) % 2 == 0 else BLUE_LIGHT
+                if ci == 0:
+                    _pdf_rect(c, cx(ci), ry, cw(ci), rh, HEADER_BG, GOLD)
+                    _pdf_label(c, str(gp), cx(ci), ry, cw(ci), rh, GOLD, 7, bold=True)
+                else:
+                    spp = SPP_COLS[ci - 1]
+                    _pdf_rect(c, cx(ci), ry, cw(ci), rh, bg, GOLD)
+                    _pdf_teams_cell(c, TEAMS.get((gp, spp), []), cx(ci), ry, cw(ci), rh)
+
+
+def _pdf_star_table(c, left, bottom, width, height):
+    costs  = sorted(STAR_PLAYERS.keys())
+    lab_w  = width * 0.075
+    col_w  = (width - lab_w) / len(costs)
+    hdr_h  = height * 0.18
+    dat_h  = height - hdr_h
+    hdr_yb = bottom + dat_h
+
+    _pdf_rect(c, left, hdr_yb, lab_w, hdr_h, HEADER_BG, GOLD)
+    _pdf_label(c, "★ Cost", left, hdr_yb, lab_w, hdr_h, STAR_GOLD, 7, bold=True)
+    for ci, cost in enumerate(costs):
+        ecx = left + lab_w + ci * col_w
+        _pdf_rect(c, ecx, hdr_yb, col_w, hdr_h, HEADER_BG, GOLD)
+        _pdf_label(c, f"{cost} SPP", ecx, hdr_yb, col_w, hdr_h, GOLD, 7.5, bold=True)
+
+    _pdf_rect(c, left, bottom, lab_w, dat_h, BLUE_DARK, GOLD)
+    for ci, cost in enumerate(costs):
+        ecx = left + lab_w + ci * col_w
+        _pdf_rect(c, ecx, bottom, col_w, dat_h, BLUE_MID, GOLD)
+        fs, lh = 6.0, 7.8
+        c.setFont("Helvetica", fs)
+        c.setFillColor(_rc(WHITE))
+        ey = bottom + dat_h - lh
+        for name in STAR_PLAYERS[cost]:
+            if ey < bottom + 2:
+                break
+            c.drawString(ecx + 3, ey, name)
+            ey -= lh
+
+
+def _pdf_rules_block(c, section: str, rules: dict, left, col_w, top_y) -> float:
+    """Draw one rules section. top_y is the reportlab Y of the top edge. Returns new top_y."""
+    HDR_H  = 0.32 * 72
+    LINE_H = 0.205 * 72
+    ROW_H  = 0.195 * 72
+    HROW_H = 0.23 * 72
+    PAD    = 0.05 * 72
+    FS     = 7.5
+    MAX_W  = col_w - 8
+
+    items   = rules.get("items", [])
+    intro   = rules.get("intro")
+    tbl_def = rules.get("table")
+
+    intro_lines = _pdf_wrap(intro, "Helvetica", FS, MAX_W) if intro else []
+    n_text  = len(intro_lines) + len(items)
+    text_h  = (PAD + n_text * LINE_H + PAD) if n_text else 0
+
+    # Section header
+    _pdf_rect(c, left, top_y - HDR_H, col_w, HDR_H, SECTION_BG)
+    _pdf_label(c, section, left, top_y - HDR_H, col_w, HDR_H, GOLD, 9, bold=True)
+    top_y -= HDR_H
+
+    # Text body
+    if n_text:
+        _pdf_rect(c, left, top_y - text_h, col_w, text_h, BLUE_LIGHT)
+        c.setFont("Helvetica", FS)
+        c.setFillColor(_rc(WHITE))
+        ty = top_y - PAD - FS * 0.72
+        for line in intro_lines:
+            c.drawString(left + 5, ty, "  " + line)
+            ty -= LINE_H
+        for item in items:
+            c.drawString(left + 5, ty, "• " + item)
+            ty -= LINE_H
+        top_y -= text_h
+
+    # Inline table
+    if tbl_def:
+        headers    = tbl_def.get("headers", [])
+        rows       = tbl_def["rows"]
+        widths_rel = tbl_def.get("col_widths")
+        n_cols     = len(headers) if headers else len(rows[0])
+        has_hdr    = bool(headers)
+
+        if widths_rel:
+            total = sum(widths_rel)
+            cws = [col_w * w / total for w in widths_rel]
+        else:
+            cws = [col_w / n_cols] * n_cols
+        cxs = [left + sum(cws[:i]) for i in range(n_cols)]
+
+        if has_hdr:
+            for ci, hdr in enumerate(headers):
+                _pdf_rect(c, cxs[ci], top_y - HROW_H, cws[ci], HROW_H, SECTION_BG, GOLD)
+                _pdf_label(c, hdr, cxs[ci], top_y - HROW_H, cws[ci], HROW_H, GOLD, 6.5, bold=True)
+            top_y -= HROW_H
+
+        for ri, row_data in enumerate(rows):
+            bg = BLUE_DARK if ri % 2 == 0 else BLUE_MID
+            for ci, val in enumerate(row_data):
+                _pdf_rect(c, cxs[ci], top_y - ROW_H, cws[ci], ROW_H, bg, GOLD)
+                _pdf_label(c, str(val), cxs[ci], top_y - ROW_H, cws[ci], ROW_H, WHITE,
+                           6.5, align="C" if ci == 0 else "L")
+            top_y -= ROW_H
+
+    return top_y - PAD
+
+
+def export_pdf(out_path: str) -> str:
+    """Generate a 2-page PDF using reportlab (pure Python)."""
+    PT  = 72.0
+    PW  = 13.33 * PT
+    PH  = 7.5  * PT
+    M   = 0.12 * PT
+    GAP = 0.08 * PT
+
+    pdf_path = os.path.splitext(out_path)[0] + ".pdf"
+    c = rl_canvas.Canvas(pdf_path, pagesize=(PW, PH))
+
+    title_h = 0.45 * PT
+
+    def _bg():
+        c.drawImage(BG_PATH, 0, 0, PW, PH, preserveAspectRatio=False)
+
+    def _title(text, fs=20):
+        _pdf_rect(c, M, PH - M - title_h, PW - 2 * M, title_h, BLUE_DARK)
+        _pdf_label(c, text, M, PH - M - title_h, PW - 2 * M, title_h, GOLD, fs, bold=True)
+
+    def _logo():
+        with Image.open(LOGO_PATH) as img:
+            wpx, hpx = img.size
+        lh = 0.38 * PT
+        lw = lh * wpx / hpx
+        c.drawImage(LOGO_PATH, PW - M - lw, PH - M - lh, lw, lh, mask="auto")
+
+    # ── Page 1 ──────────────────────────────────────────────────────────────
+    _bg()
+    _title("Aarhus Wargaming Grid 2026", fs=20)
+
+    grid_top = M + title_h + GAP
+    grid_h   = 3.75 * PT
+    _pdf_grid_table(c, M, PH - grid_top - grid_h, PW - 2 * M, grid_h)
+
+    star_top = grid_top + grid_h + GAP
+    star_h   = PH - star_top - M
+    _pdf_star_table(c, M, PH - star_top - star_h, PW - 2 * M, star_h)
+
+    _logo()
+    c.showPage()
+
+    # ── Page 2 ──────────────────────────────────────────────────────────────
+    _bg()
+    _title("Aarhus Wargaming Grid 2026 – Special Rules", fs=18)
+
+    GAP2 = 0.10 * PT
+    col_w = (PW - 2 * M - GAP2) / 2
+    col_lefts = [M, M + col_w + GAP2]
+    sections = list(SPECIAL_RULES.items())
+    mid = (len(sections) + 1) // 2
+
+    col_bottoms = []
+    for col_idx, col_secs in enumerate([sections[:mid], sections[mid:]]):
+        top_y = PH - (M + title_h + GAP2)
+        for section, rules in col_secs:
+            top_y = _pdf_rules_block(c, section, rules, col_lefts[col_idx], col_w, top_y)
+            top_y -= GAP2
+        col_bottoms.append(top_y)
+
+    stars_top_y = min(col_bottoms) - GAP2 * 0.5
+    stars_h = stars_top_y - M
+    if stars_h > 1.5 * PT:
+        _pdf_star_table(c, M, M, PW - 2 * M, stars_h)
+
+    _logo()
+    c.save()
     return pdf_path
 
 
@@ -766,7 +1015,7 @@ def main():
     try:
         pdf_path = export_pdf(OUT_PATH)
         print(f"Saved → {pdf_path}")
-    except (RuntimeError, FileNotFoundError) as e:
+    except Exception as e:
         print(f"Warning: PDF export failed – {e}")
 
     # Clean up temp files
