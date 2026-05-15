@@ -10,6 +10,8 @@ Aarhus Wargaming Blood Bowl 7s tournament grid.
 
 The Warhammer Aarhus club logo is used as a watermark background on both pages.
 
+The grid was based on Steely Grid from 2026.
+
 ---
 
 ## Requirements
