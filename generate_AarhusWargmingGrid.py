@@ -30,6 +30,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SVG_PATH   = os.path.join(SCRIPT_DIR, "Warhammer Aarhus Logo_vector.svg")
 OUT_PATH   = os.path.join(SCRIPT_DIR, "AarhusWargmingGrid.pptx")
 BG_PATH    = os.path.join(SCRIPT_DIR, "_bg_temp.png")
+LOGO_PATH  = os.path.join(SCRIPT_DIR, "_logo_temp.png")
 
 # ─── GRID DATA ──────────────────────────────────────────────────────────────
 
@@ -41,33 +42,33 @@ SPP_COLS = [3, 5, 6, 7, 8]
 
 # Teams per (gp, spp) cell.  Each entry is (team_name, tier) where tier is 1/2/3.
 # Slann is intentionally excluded.
-# Tier colour key: T1 = gold, T2 = silver, T3 = bronze  (see TIER_COLORS below).
+# Tier colour key: T1 = green, T2 = yellow, T3 = orange, T4 = red  (see TIER_COLORS below).
 TEAMS: dict[tuple[int, int], list[tuple[str, int]]] = {
-    (650, 3):  [("Amazons", 2), ("OWA", 3)],
-    (650, 5):  [("Orc", 1), ("Undead", 1), ("Wood Elf", 1)],
-    (650, 6):  [("Human", 2), ("Dark Elf", 1), ("High Elf", 2)],
-    (650, 8):  [("Bretonnian", 2), ("Snotlings", 3)],
+    (650, 3):  [("Amazons", 1), ("OWA", 2)],
+    (650, 5):  [("Orc", 2), ("Undead", 2), ("Wood Elf", 1)],
+    (650, 6):  [("Human", 2), ("Dark Elf", 2), ("High Elf", 1)],
+    (650, 8):  [("Bretonnian", 3), ("Snotlings", 3)],
     (650, 8): [],
     (675, 3):  [],
-    (675, 5):  [("Norse", 2), ("Necromantic", 2), ("Lizardmen", 1)],
-    (675, 6):  [("Tomb Kings", 2), ("Underworld", 2), ("Imperial Nobility", 3)],
+    (675, 5):  [("Norse", 1), ("Necromantic", 2), ("Lizardmen", 1)],
+    (675, 6):  [("Tomb Kings", 3), ("Underworld", 1), ("Imperial Nobility", 2)],
     (675, 7):  [("Chaos Chosen", 2)],
     (675, 8): [],
     (700, 3):  [],
-    (700, 5):  [("Nurgle", 2), ("Vampire", 2)],
+    (700, 5):  [("Nurgle", 3), ("Vampire", 1)],
     (700, 6):  [("Skaven", 1), ("Elven Union", 2)],
     (700, 7):  [("Khorne Renegades", 3), ("Chaos Dwarf", 2)],
     (700, 8): [],
     (725, 3):  [],
     (725, 5):  [],
     (725, 6):  [],
-    (725, 7):  [("Dwarf", 2), ("Goblins", 3), ("Black Orc", 2)],
+    (725, 7):  [("Dwarf", 1), ("Goblins", 4), ("Black Orc", 3)],
     (725, 8): [],
     (750, 3):  [],
     (750, 5):  [],
     (750, 6):  [],
-    (750, 7):  [("Gnomes", 3)],
-    (750, 8): [("Halfling", 3), ("Ogres", 3)],
+    (750, 7):  [("Gnomes", 4)],
+    (750, 8): [("Halfling", 4), ("Ogres", 3)],
 }
 
 # ─── STAR PLAYERS ───────────────────────────────────────────────────────────
@@ -196,9 +197,10 @@ STAR_GOLD    = RGBColor(0xFF, 0xD7, 0x00)   # star icon
 
 # Tier badge colours (displayed inline after each team name)
 TIER_COLORS = {
-    1: RGBColor(0xFF, 0xD7, 0x00),   # T1 – gold
-    2: RGBColor(0xC0, 0xC0, 0xC0),   # T2 – silver
-    3: RGBColor(0xCD, 0x7F, 0x32),   # T3 – bronze
+    1: RGBColor(0x00, 0xCC, 0x44),   # T1 – green
+    2: RGBColor(0xFF, 0xDD, 0x00),   # T2 – yellow
+    3: RGBColor(0xFF, 0x77, 0x00),   # T3 – orange
+    4: RGBColor(0xDD, 0x11, 0x11),   # T4 – red
 }
 
 # ─── HELPERS ────────────────────────────────────────────────────────────────
@@ -353,6 +355,20 @@ def send_to_back(slide, shape):
 
 # ─── BACKGROUND GENERATION ──────────────────────────────────────────────────
 
+def build_logo_png(svg_path: str, out_path: str, height_px: int = 80):
+    """Render the SVG logo as a small white-tinted PNG for the corner badge."""
+    logo_bytes = cairosvg.svg2png(url=svg_path, output_height=height_px)
+    logo = Image.open(io.BytesIO(logo_bytes)).convert("RGBA")
+    r, g, b, a = logo.split()
+    white = Image.new("L", logo.size, 255)
+    bright_a = a.point(lambda v: int(v * 0.85))
+    white_logo = Image.merge("RGBA", (white, white, white, bright_a))
+    canvas = Image.new("RGBA", logo.size, (0, 0, 0, 0))
+    canvas.paste(white_logo, (0, 0), white_logo)
+    canvas.save(out_path, "PNG")
+    return logo.width, logo.height
+
+
 def build_background_png(svg_path: str, out_path: str, width: int = 1920, height: int = 1080):
     """
     Render the SVG logo as a white watermark centred on a dark-navy background.
@@ -387,6 +403,17 @@ def add_bg_picture(slide, img_path: str, prs):
     """Insert image as the very first element (background)."""
     pic = slide.shapes.add_picture(img_path, 0, 0, prs.slide_width, prs.slide_height)
     send_to_back(slide, pic)
+
+
+def add_logo_corner(slide, prs, margin):
+    """Place the logo PNG in the upper-right corner, centred within the title bar."""
+    with Image.open(LOGO_PATH) as img:
+        w_px, h_px = img.size
+    h = Inches(0.38)
+    w = int(h * w_px / h_px)
+    left = prs.slide_width - margin - w
+    top  = margin + int((Inches(0.45) - h) / 2)
+    slide.shapes.add_picture(LOGO_PATH, left, top, w, int(h))
 
 
 # ─── PAGE 1 – GRID ──────────────────────────────────────────────────────────
@@ -504,6 +531,8 @@ def build_page1(prs, bg_path: str):
     star_top = grid_top + grid_h + Inches(0.08)
     star_h   = sh - star_top - margin
     build_star_table(slide, margin, star_top, sw - 2 * margin, star_h)
+
+    add_logo_corner(slide, prs, margin)
 
 
 # ─── PAGE 2 – RULES ─────────────────────────────────────────────────────────
@@ -688,6 +717,8 @@ def build_page2(prs, bg_path: str):
     if stars_h > Inches(1.5):
         build_star_rules_table(slide, margin, stars_top, sw - 2 * margin, stars_h)
 
+    add_logo_corner(slide, prs, margin)
+
 
 # ─── PDF EXPORT ─────────────────────────────────────────────────────────────
 
@@ -716,6 +747,7 @@ def export_pdf(pptx_path: str) -> str:
 def main():
     print("Building background image…")
     build_background_png(SVG_PATH, BG_PATH)
+    build_logo_png(SVG_PATH, LOGO_PATH)
 
     prs = Presentation()
     prs.slide_width  = Inches(13.33)
@@ -737,11 +769,12 @@ def main():
     except (RuntimeError, FileNotFoundError) as e:
         print(f"Warning: PDF export failed – {e}")
 
-    # Clean up temp background
-    try:
-        os.remove(BG_PATH)
-    except OSError:
-        pass
+    # Clean up temp files
+    for tmp in (BG_PATH, LOGO_PATH):
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
 
 
 if __name__ == "__main__":
